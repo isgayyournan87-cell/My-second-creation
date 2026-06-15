@@ -1,0 +1,307 @@
+--// Stealth Target System
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local lp = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+local mouse = lp:GetMouse()
+
+-- Settings
+local currentTarget = nil
+local aimEnabled = false
+local silentAim = true
+local smoothAssist = true
+local holdToAim = true
+local aimKey = Enum.UserInputType.MouseButton2
+local targetKey = Enum.KeyCode.R
+local switchPartKey = Enum.KeyCode.T
+local fovRadius = 150
+local predictionFactor = 0.08
+local smoothness = 0.25
+local smartSmooth = true
+local teamCheck = true
+local aimPart = "Head"
+local triggerBot = true
+local espEnabled = true
+local showFovCircle = true
+
+local drawings = {}
+local listeningForKey = nil
+
+-- Silent Aim Hook
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    if silentAim and aimEnabled and currentTarget and currentTarget.Character then
+        local part = currentTarget.Character:FindFirstChild(aimPart)
+        if part and method == "FireServer" and (self.Name:lower():find("bullet") or self.Name:lower():find("shoot") or self.Name:lower():find("fire")) then
+            args[1] = part.Position + (part.Velocity * predictionFactor)
+        end
+    end
+    return oldNamecall(self, unpack(args))
+end)
+setreadonly(mt, true)
+
+-- FOV Circle
+local fovCircle = Drawing.new("Circle")
+fovCircle.Thickness = 2
+fovCircle.Color = Color3.fromRGB(0, 170, 255)
+fovCircle.Transparency = 0.7
+fovCircle.Filled = false
+fovCircle.Radius = fovRadius
+fovCircle.Visible = showFovCircle
+
+-- Drawing ESP
+local function createDrawingESP(plr)
+    if plr == lp then return end
+    local esp = {Box = Drawing.new("Square"), Name = Drawing.new("Text"), Distance = Drawing.new("Text")}
+    esp.Box.Thickness = 2; esp.Box.Color = Color3.fromRGB(0,255,100); esp.Box.Transparency = 0.8; esp.Box.Filled = false
+    esp.Name.Color = Color3.fromRGB(255,255,255); esp.Name.Size = 14; esp.Name.Center = true; esp.Name.Outline = true
+    esp.Distance.Color = Color3.fromRGB(200,200,200); esp.Distance.Size = 13; esp.Distance.Center = true; esp.Distance.Outline = true
+    drawings[plr] = esp
+end
+
+local function updateDrawingESP()
+    for plr, esp in pairs(drawings) do
+        local char = plr.Character
+        if char and char:FindFirstChild("HumanoidRootPart") and espEnabled then
+            local root = char.HumanoidRootPart
+            local sPos, onScreen = camera:WorldToViewportPoint(root.Position)
+            if onScreen then
+                local dist = (camera.CFrame.Position - root.Position).Magnitude
+                local head = char:FindFirstChild("Head")
+                local top = head and camera:WorldToViewportPoint(head.Position + Vector3.new(0,1,0)) or sPos
+                
+                esp.Box.Size = Vector2.new(2400/dist, 3600/dist)
+                esp.Box.Position = Vector2.new(sPos.X - esp.Box.Size.X/2, top.Y)
+                esp.Box.Visible = true
+
+                esp.Name.Text = plr.Name .. " [" .. aimPart .. "]"
+                esp.Name.Position = Vector2.new(sPos.X, top.Y - 20)
+                esp.Name.Visible = true
+
+                esp.Distance.Text = string.format("%.0f", dist)
+                esp.Distance.Position = Vector2.new(sPos.X, sPos.Y + esp.Box.Size.Y/2 + 5)
+                esp.Distance.Visible = true
+            else
+                for _, v in pairs(esp) do v.Visible = false end
+            end
+        else
+            for _, v in pairs(esp) do if v then v.Visible = false end end
+        end
+    end
+end
+
+local function isEnemy(plr)
+    if not teamCheck then return true end
+    if not lp.Team or not plr.Team then return true end
+    return lp.Team \~= plr.Team
+end
+
+local function isVisible(char)
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {lp.Character}
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local res = Workspace:Raycast(camera.CFrame.Position, root.Position - camera.CFrame.Position, params)
+    return not res or res.Instance:IsDescendantOf(char)
+end
+
+local function getClosestInFOV()
+    local closest, minDist = nil, math.huge
+    local mPos = Vector2.new(mouse.X, mouse.Y)
+    for _, plr in Players:GetPlayers() do
+        if plr \~= lp and isEnemy(plr) and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local sPos, onScreen = camera:WorldToViewportPoint(root.Position)
+                if onScreen then
+                    local d = (Vector2.new(sPos.X, sPos.Y) - mPos).Magnitude
+                    if d < fovRadius and d < minDist and isVisible(plr.Character) then
+                        minDist = d
+                        closest = plr
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function mainLoop()
+    if aimEnabled and currentTarget and currentTarget.Character then
+        if not isVisible(currentTarget.Character) then
+            currentTarget = getClosestInFOV()
+        end
+    else
+        if aimEnabled then
+            currentTarget = getClosestInFOV()
+        end
+    end
+
+    updateDrawingESP()
+
+    if triggerBot and aimEnabled and currentTarget then
+        mouse1click()
+    end
+end
+
+print("✅ Stealth Target System Loaded")
+
+-- ==================== FULL GUI ====================
+local gui = Instance.new("ScreenGui")
+gui.ResetOnSpawn = false
+gui.Parent = lp:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 340, 0, 680)
+mainFrame.Position = UDim2.new(0, 20, 0.08, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+mainFrame.Parent = gui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,12)
+
+local title = Instance.new("TextLabel", mainFrame)
+title.Size = UDim2.new(1,0,0,45)
+title.BackgroundColor3 = Color3.fromRGB(30,30,30)
+title.Text = "Stealth Target System"
+title.TextColor3 = Color3.new(1,1,1)
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+Instance.new("UICorner", title).CornerRadius = UDim.new(0,12)
+
+local y = 55
+
+local function addToggle(txt, val, callback)
+    local btn = Instance.new("TextButton", mainFrame)
+    btn.Size = UDim2.new(1,-20,0,36)
+    btn.Position = UDim2.new(0,10,0,y)
+    btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    btn.Text = txt .. ": " .. (val and "ON" or "OFF")
+    btn.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+    btn.MouseButton1Click:Connect(function()
+        val = not val
+        btn.Text = txt .. ": " .. (val and "ON" or "OFF")
+        callback(val)
+    end)
+    y = y + 42
+end
+
+addToggle("Aim Enabled", aimEnabled, function(v) aimEnabled = v end)
+addToggle("Silent Aim", silentAim, function(v) silentAim = v end)
+addToggle("Smooth Assist", smoothAssist, function(v) smoothAssist = v end)
+addToggle("Hold to Aim", holdToAim, function(v) holdToAim = v end)
+addToggle("Team Check", teamCheck, function(v) teamCheck = v end)
+addToggle("Trigger Bot", triggerBot, function(v) triggerBot = v end)
+addToggle("ESP", espEnabled, function(v) espEnabled = v end)
+addToggle("Show FOV Circle", showFovCircle, function(v) showFovCircle = v; fovCircle.Visible = v end)
+
+local function addKeybind(txt, current, callback)
+    local btn = Instance.new("TextButton", mainFrame)
+    btn.Size = UDim2.new(1,-20,0,36)
+    btn.Position = UDim2.new(0,10,0,y)
+    btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    btn.Text = txt .. ": " .. current.Name
+    btn.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+    btn.MouseButton1Click:Connect(function()
+        btn.Text = txt .. ": Press any key..."
+        listeningForKey = function(key)
+            callback(key)
+            btn.Text = txt .. ": " .. key.Name
+            listeningForKey = nil
+        end
+    end)
+    y = y + 42
+end
+
+addKeybind("Target Lock Key", targetKey, function(k) targetKey = k end)
+addKeybind("Part Switch Key", switchPartKey, function(k) switchPartKey = k end)
+
+-- Sliders
+local function addSlider(txt, default, minV, maxV, callback)
+    local frame = Instance.new("Frame", mainFrame)
+    frame.Size = UDim2.new(1,-20,0,55)
+    frame.Position = UDim2.new(0,10,0,y)
+    frame.BackgroundTransparency = 1
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1,0,0,20)
+    label.Text = txt .. ": " .. string.format("%.2f", default)
+    label.TextColor3 = Color3.new(1,1,1)
+    label.BackgroundTransparency = 1
+
+    local bar = Instance.new("Frame", frame)
+    bar.Size = UDim2.new(1,0,0,8)
+    bar.Position = UDim2.new(0,0,0,30)
+    bar.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0,4)
+
+    local inner = Instance.new("Frame", bar)
+    inner.Size = UDim2.new((default-minV)/(maxV-minV),0,1,0)
+    inner.BackgroundColor3 = Color3.fromRGB(0,170,255)
+    Instance.new("UICorner", inner).CornerRadius = UDim.new(0,4)
+
+    bar.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            local conn = UserInputService.InputChanged:Connect(function(m)
+                if m.UserInputType == Enum.UserInputType.MouseMovement then
+                    local x = math.clamp((m.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+                    local val = minV + (maxV - minV) * x
+                    callback(val)
+                    inner.Size = UDim2.new(x,0,1,0)
+                    label.Text = txt .. ": " .. string.format("%.2f", val)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(e)
+                if e.UserInputType == Enum.UserInputType.MouseButton1 then conn:Disconnect() end
+            end)
+        end
+    end)
+    y = y + 65
+end
+
+addSlider("FOV Radius", fovRadius, 50, 500, function(v) fovRadius = v; fovCircle.Radius = v end)
+addSlider("Prediction", predictionFactor, 0, 0.25, function(v) predictionFactor = v end)
+addSlider("Smoothness", smoothness, 0.05, 0.95, function(v) smoothness = v end)
+
+-- Close Button
+local closeBtn = Instance.new("TextButton", mainFrame)
+closeBtn.Size = UDim2.new(0,30,0,30)
+closeBtn.Position = UDim2.new(1,-35,0,8)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255,80,80)
+closeBtn.TextSize = 20
+closeBtn.MouseButton1Click:Connect(function()
+    gui:Destroy()
+    fovCircle:Remove()
+end)
+
+-- Key Listener
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if listeningForKey then
+        listeningForKey(input.KeyCode)
+        return
+    end
+    if input.KeyCode == targetKey then
+        currentTarget = getClosestInFOV()
+    elseif input.KeyCode == switchPartKey and currentTarget then
+        aimPart = (aimPart == "Head") and "HumanoidRootPart" or "Head"
+    end
+end)
+
+-- Main Loop
+RunService.RenderStepped:Connect(mainLoop)
+
+-- Init ESP
+for _, plr in Players:GetPlayers() do createDrawingESP(plr) end
+Players.PlayerAdded:Connect(createDrawingESP)
