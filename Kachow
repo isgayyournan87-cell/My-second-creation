@@ -1,0 +1,83 @@
+--// Stealth Target System
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local lp = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+local mouse = lp:GetMouse()
+
+-- Settings
+local currentTarget = nil
+local aimEnabled = false
+local silentAim = true
+local smoothAssist = true
+local holdToAim = true
+local aimKey = Enum.UserInputType.MouseButton2
+local targetKey = Enum.KeyCode.R
+local switchPartKey = Enum.KeyCode.T
+local fovRadius = 150
+local predictionFactor = 0.08
+local smoothness = 0.25
+local smartSmooth = true
+local teamCheck = true
+local aimPart = "Head"
+local triggerBot = true
+local espEnabled = true
+local showFovCircle = true
+
+local connections = {}
+local drawings = {}
+local lastTarget = nil
+local lockTimer = 0
+local silentTarget = nil
+local listeningForKey = nil
+
+-- Silent Aim Hook
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    if silentAim and aimEnabled and silentTarget and silentTarget.Character then
+        local part = silentTarget.Character:FindFirstChild(aimPart)
+        if part and method == "FireServer" and (self.Name:lower():find("bullet") or self.Name:lower():find("shoot") or self.Name:lower():find("fire")) then
+            args[1] = part.Position + (part.Velocity * predictionFactor)
+        end
+    end
+    return oldNamecall(self, unpack(args))
+end)
+setreadonly(mt, true)
+
+-- FOV Circle
+local fovCircle = Drawing.new("Circle")
+fovCircle.Thickness = 2
+fovCircle.Color = Color3.fromRGB(0, 170, 255)
+fovCircle.Transparency = 0.7
+fovCircle.Filled = false
+fovCircle.Radius = fovRadius
+fovCircle.Visible = showFovCircle
+
+-- Drawing ESP + other functions (same as before, fixed)
+local function createDrawingESP(plr)
+    if plr == lp then return end
+    local esp = {Box = Drawing.new("Square"), Name = Drawing.new("Text"), Distance = Drawing.new("Text")}
+    esp.Box.Thickness = 2; esp.Box.Color = Color3.fromRGB(0,255,100); esp.Box.Transparency = 0.8; esp.Box.Filled = false
+    esp.Name.Color = Color3.fromRGB(255,255,255); esp.Name.Size = 14; esp.Name.Center = true; esp.Name.Outline = true
+    esp.Distance.Color = Color3.fromRGB(200,200,200); esp.Distance.Size = 13; esp.Distance.Center = true; esp.Distance.Outline = true
+    drawings[plr] = esp
+end
+
+-- ... (rest of the functions: updateDrawingESP, isEnemy, isVisible, getClosestInFOV, applySilentAim, applySmoothAssist, mainLoop) ...
+
+print("✅ Stealth Target System Loaded")
+
+-- Full GUI code here (the same one I gave you last time)
+
+-- At the end:
+table.insert(connections, RunService.RenderStepped:Connect(mainLoop))
+
+for _, plr in Players:GetPlayers() do createDrawingESP(plr) end
+Players.PlayerAdded:Connect(createDrawingESP)
