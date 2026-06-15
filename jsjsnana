@@ -1,0 +1,101 @@
+--// Stealth Target System
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local lp = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+local mouse = lp:GetMouse()
+
+local currentTarget = nil
+local aimEnabled = false
+local silentAim = true
+local smoothAssist = true
+local holdToAim = true
+local aimKey = Enum.UserInputType.MouseButton2
+local targetKey = Enum.KeyCode.R
+local switchPartKey = Enum.KeyCode.T
+local fovRadius = 150
+local predictionFactor = 0.08
+local smoothness = 0.25
+local smartSmooth = true
+local teamCheck = true
+local aimPart = "Head"
+local triggerBot = true
+local espEnabled = true
+local showFovCircle = true
+
+local drawings = {}
+local listeningForKey = nil
+
+-- Silent Aim
+local mt = getrawmetatable(game)
+local old = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+    local args = {...}
+    local method = getnamecallmethod()
+    if silentAim and aimEnabled and currentTarget and currentTarget.Character then
+        local part = currentTarget.Character:FindFirstChild(aimPart)
+        if part and method == "FireServer" and self.Name:lower():find("bullet") or self.Name:lower():find("shoot") then
+            args[1] = part.Position + (part.Velocity * predictionFactor)
+        end
+    end
+    return old(self, unpack(args))
+end)
+setreadonly(mt, true)
+
+-- FOV Circle
+local fovCircle = Drawing.new("Circle")
+fovCircle.Thickness = 2
+fovCircle.Color = Color3.fromRGB(0, 170, 255)
+fovCircle.Transparency = 0.7
+fovCircle.Filled = false
+fovCircle.Radius = fovRadius
+fovCircle.Visible = showFovCircle
+
+print("✅ Stealth Target System Loaded")
+
+-- Simple GUI (I'll add full one later if this works)
+local gui = Instance.new("ScreenGui")
+gui.ResetOnSpawn = false
+gui.Parent = lp:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 300, 0, 400)
+frame.Position = UDim2.new(0, 50, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,0,0,40)
+title.BackgroundColor3 = Color3.fromRGB(30,30,30)
+title.Text = "Stealth Target System"
+title.TextColor3 = Color3.new(1,1,1)
+title.Parent = frame
+Instance.new("UICorner", title).CornerRadius = UDim.new(0,12)
+
+-- Basic toggle example
+local function toggleButton(text, default, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -20, 0, 35)
+    btn.Position = UDim2.new(0, 10, 0, 50)
+    btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    btn.Text = text .. ": " .. (default and "ON" or "OFF")
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.Parent = frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+    
+    btn.MouseButton1Click:Connect(function()
+        default = not default
+        btn.Text = text .. ": " .. (default and "ON" or "OFF")
+        callback(default)
+    end)
+end
+
+toggleButton("Aim Enabled", aimEnabled, function(v) aimEnabled = v end)
+toggleButton("Silent Aim", silentAim, function(v) silentAim = v end)
+
+print("GUI Loaded - More toggles coming if this works")
